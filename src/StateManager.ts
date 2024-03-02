@@ -202,6 +202,14 @@ export default class StateManager {
     }
     
 
+    public static areAllLabelsUnique(): boolean {
+        const labels = StateManager.toJSON().states.map(state => state.label); // Extract just the labels
+        const uniqueLabels = new Set(labels);
+        return labels.length === uniqueLabels.size;
+    }
+
+
+
     public static addTransition(transition: TransitionWrapper) {
         console.log('Adding transition to the array');
         StateManager._transitionWrappers.push(transition);

@@ -18,6 +18,15 @@ function App() {
     const [selectedObjects, setSelectedObjects] = useState(new Array<SelectableObject>());
     const [startNode, setStartNode] = useState(StateManager.startNode);
 
+    const [isLabelUnique, setIsLabelUnique] = useState(true);
+
+    const checkLabelUniqueness = () => {
+        const automatonData = StateManager.toJSON();
+        const labels = automatonData.states.map(state => state.label);
+        const uniqueLabels = new Set(labels);
+        setIsLabelUnique(labels.length === uniqueLabels.size);
+    };
+    
     // Switch current tool when keys pressed
     useEffect(() => {
         StateManager.setSelectedObjects = setSelectedObjects;
@@ -58,6 +67,12 @@ function App() {
     }, [startNode]);
 
 
+    useEffect(() => {
+        const unique = StateManager.areAllLabelsUnique();
+        setIsLabelUnique(unique);
+    }, [selectedObjects]);
+
+
     // Config window
     const [configWindowOpen, setConfigWindowOpen] = useState(false);
     const openConfigWindow = () => { setConfigWindowOpen(true); };
@@ -77,6 +92,8 @@ function App() {
             <div className='flex flex-row h-screen text-center'>
                 
             <div>
+
+    
     {/* The following panel will have a fixed width of 300px */}
     <FloatingPanel heightPolicy='min' style={{ width: '300px' }}>
         <DetailsBox
@@ -84,9 +101,13 @@ function App() {
             startNode={startNode}
             setStartNode={setStartNode}
         />
-
+        {!isLabelUnique && (
+            <InformationBox infoBoxType={InformationBoxType.Error}>
+                Duplicate state labels detected. Each state must have a unique label.
+            </InformationBox>
+        )}
         {/* Some example error message boxes */}
-        <InformationBox infoBoxType={InformationBoxType.Error}>
+        {/* <InformationBox infoBoxType={InformationBoxType.Error}>
             State "q0" has multiple transitions for token "a"
         </InformationBox>
 
@@ -112,7 +133,7 @@ function App() {
 
         <InformationBox infoBoxType={InformationBoxType.Warning}>
             Accept state "q4" is inaccessible; automaton will always reject
-        </InformationBox>
+        </InformationBox> */}
         
         <div className="flex flex-col items-center mt-4">
             <button
