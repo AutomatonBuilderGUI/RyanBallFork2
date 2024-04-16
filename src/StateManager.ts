@@ -28,10 +28,12 @@ export default class StateManager {
     private static _startStateLine: Konva.Arrow | null = null;
     private static _nodeLayer: Konva.Layer | null = null;
     private static _transitionLayer: Konva.Layer | null = null;
+    private static _gridLayer: Konva.Layer | null = null;
 
     public static setSelectedObjects: React.Dispatch<React.SetStateAction<SelectableObject[]>> | null = null;
 
     private static _useDarkMode: boolean = false;
+    private static _snapToGridEnabled: boolean = false;
 
     public static get colorScheme() {
         if (this._useDarkMode) {
@@ -43,6 +45,14 @@ export default class StateManager {
     }
 
     private constructor() {
+    }
+
+    public static toggleSnapToGrid() {
+        StateManager._snapToGridEnabled = !StateManager._snapToGridEnabled;
+    }
+
+    public static isSnapToGridEnabled(): boolean {
+        return StateManager._snapToGridEnabled;
     }
 
     public static initialize() {
@@ -61,9 +71,13 @@ export default class StateManager {
         this._stage.on('dblclick', (ev) => StateManager.onDoubleClick.call(this, ev));
         this._stage.on('click', (ev) => StateManager.onClick.call(this, ev));
         this._stage.on('wheel', StateManager.handleWheelEvent);
+        this._stage.on('dragmove', StateManager.onDragMove);
 
         this._nodeLayer = new Konva.Layer();
         this._transitionLayer = new Konva.Layer();
+        this._gridLayer = new Konva.Layer();
+        this._stage.add(this._gridLayer);
+        this.drawGrid(); // Draw the initial grid
 
         this._tentConnectionLine = new Konva.Arrow({
             x: 0,
@@ -99,7 +113,7 @@ export default class StateManager {
         
         this._stage.add(this._transitionLayer);
         this._stage.add(this._nodeLayer);
-        StateManager.drawGrid();
+        
         addEventListener('keydown', this.onKeyDown);
         addEventListener('resize', this.handleResize);
     }
@@ -123,34 +137,69 @@ export default class StateManager {
         }
     }
 
-    public static drawGrid(){
-        const gridLayer = new Konva.Layer({name: 'gridLayer'});
-        const gridCellSize = 50;
-        const verticalLineNum = 80
-        const horizontalLineNum = 40
-
-        for(let i = 0; i < verticalLineNum; i++){
-            let line = new Konva.Line({
-                points: [i * gridCellSize, 0, i * gridCellSize,(horizontalLineNum-1)*gridCellSize],
-                stroke: 'lightgrey',
-                strokeWidth: 1,
-            });
-            gridLayer.add(line);
-        }
-
-        for(let j = 0; j < horizontalLineNum; j++){
-            let line = new Konva.Line({
-                points: [0, j * gridCellSize, (verticalLineNum-1)*gridCellSize, j * gridCellSize],
-                stroke: 'lightgrey',
-                strokeWidth: 1,
-            });
-            gridLayer.add(line);
-        }
-        StateManager._stage.add(gridLayer);
-        gridLayer.moveToBottom();
+    // getter for the stage position
+    public static getStagePosition(): { x: number; y: number } {
+        return this._stage ? { x: this._stage.x(), y: this._stage.y() } : { x: 0, y: 0 };
     }
     
-
+    // getter for the scale of the stage so it can be used in other classes
+    public static getStageScale(): { scaleX: number; scaleY: number } {
+        if (this._stage) {
+            return { scaleX: this._stage.scaleX(), scaleY: this._stage.scaleY() };
+        }
+        // Default scale is 1 if the stage is not initialized
+        return { scaleX: 1, scaleY: 1 };
+    }
+    
+    public static drawGrid() {
+        if (!StateManager._gridLayer || !StateManager._stage) {
+            console.error('Grid layer or stage is not initialized.');
+            return;
+        }
+    
+        // Clear any previous grid lines
+        StateManager._gridLayer.destroyChildren();
+    
+        const gridCellSize = 50; // Size of each cell in the grid
+        const scale = StateManager._stage.scaleX(); // Current scale of the stage
+        const stageWidth = StateManager._stage.width() / scale; // Visible width
+        const stageHeight = StateManager._stage.height() / scale; // Visible height
+        const stagePos = StateManager._stage.position(); // Current position of the stage
+    
+        // Adjust the start positions to account for stage position
+        const startX = -1 * (Math.round(stagePos.x / scale / gridCellSize) * gridCellSize);
+        const startY = -1 * (Math.round(stagePos.y / scale / gridCellSize) * gridCellSize);
+    
+        // Calculate the number of lines needed based on the stage size and scale
+        const linesX = Math.ceil(stageWidth / gridCellSize) + 2; // Extra lines to fill the space during drag
+        const linesY = Math.ceil(stageHeight / gridCellSize) + 2; // Extra lines to fill the space during drag
+    
+        // Create vertical lines
+        for (let i = 0; i < linesX; i++) {
+            let posX = startX + i * gridCellSize;
+            StateManager._gridLayer.add(new Konva.Line({
+                points: [posX, startY, posX, startY + linesY * gridCellSize],
+                stroke: this.colorScheme.gridColor,
+                strokeWidth: 1,
+                listening: false,
+            }));
+        }
+    
+        // Create horizontal lines
+        for (let j = 0; j < linesY; j++) {
+            let posY = startY + j * gridCellSize;
+            StateManager._gridLayer.add(new Konva.Line({
+                points: [startX, posY, startX + linesX * gridCellSize, posY],
+                stroke: this.colorScheme.gridColor,
+                strokeWidth: 1,
+                listening: false,
+            }));
+        }
+    
+        // Draw the grid
+        StateManager._gridLayer.batchDraw();
+    }
+    
     public static get currentTool() {
         return StateManager._currentTool;
     }
@@ -158,6 +207,13 @@ export default class StateManager {
     public static set currentTool(tool: Tool) {
         StateManager._currentTool = tool;
     }
+
+    private static onDragMove(evt: Konva.KonvaEventObject<MouseEvent>) {
+        console.log('Stage is being dragged. Redrawing grid.'); // This line logs to the console
+        StateManager.drawGrid();
+    }
+    
+    
 
     private static onClick(evt: Konva.KonvaEventObject<MouseEvent>) {
         let thingUnderMouse = StateManager._stage.getIntersection(StateManager._stage.getPointerPosition());
@@ -169,6 +225,7 @@ export default class StateManager {
     private static onDoubleClick(evt: Konva.KonvaEventObject<MouseEvent>) {
         if (StateManager.currentTool == Tool.States) {
             StateManager.addStateAtDoubleClickPos(evt);
+            
         }
         else if (StateManager.currentTool == Tool.Transitions) {
             console.log('in transition tool mode, so don\'t do anything');
@@ -183,12 +240,21 @@ export default class StateManager {
         if (!pointerPosition) return;
     
         // Convert the pointer position to the stage's coordinate space
-        const scale = stage.scaleX();
+        const scale = stage.scaleX(); // Assuming uniform scaling for X and Y
         const stagePos = stage.position();
     
         // Adjusting for the stage's position and scale
-        const x = (pointerPosition.x - stagePos.x) / scale;
-        const y = (pointerPosition.y - stagePos.y) / scale;
+        let x = (pointerPosition.x - stagePos.x) / scale;
+        let y = (pointerPosition.y - stagePos.y) / scale;
+    
+        // Snap to grid if enabled
+        if (StateManager._snapToGridEnabled) {
+            const gridSpacing = 50; // Define your grid spacing value here
+    
+            // No need to normalize the coordinates here since they're already in "stage space"
+            x = Math.round(x / gridSpacing) * gridSpacing;
+            y = Math.round(y / gridSpacing) * gridSpacing;
+        }
     
         const newStateWrapper = new NodeWrapper(x, y);
         StateManager._nodeWrappers.push(newStateWrapper);
@@ -200,6 +266,7 @@ export default class StateManager {
     
         StateManager._nodeLayer?.draw();
     }
+    
     
 
     public static addTransition(transition: TransitionWrapper) {
@@ -225,14 +292,22 @@ export default class StateManager {
 
     }
 
-    private static updateStartNodePosition() {
+    public static updateStartNodePosition() {
         StateManager._startStateLine.absolutePosition(StateManager._startNode.nodeGroup.absolutePosition());
     }
 
     private static onKeyDown(ev: KeyboardEvent) {
-        if ((ev.code === "Backspace" || ev.code === "Delete") && ev.ctrlKey) {
+        //based on the ignore shortcuts implementation in index.tsx
+        const n = document.activeElement.nodeName;
+        if (n === 'INPUT' || n === 'TEXTAREA')
+        {
+            return;
+        }
+        if (ev.code === "Backspace" || ev.code === "Delete") 
+        {
             StateManager.deleteAllSelectedObjects();
         }
+
     }
 
     public static startTentativeTransition(sourceNode: NodeWrapper) {
@@ -274,8 +349,12 @@ export default class StateManager {
             StateManager._tentConnectionLine.points([0, 0, xDestRelativeToSrc - xUnitTowardsSrc, yDestRelativeToSrc - yUnitTowardsSrc]);
         }
     }
+
+    
     
     public static endTentativeTransition() {
+
+
         if (StateManager._tentativeTransitionSource !== null && StateManager.tentativeTransitionTarget !== null) {
             const newTransitionWrapper = new TransitionWrapper(StateManager._tentativeTransitionSource, StateManager._tentativeTransitionTarget);
             StateManager._transitionWrappers.push(newTransitionWrapper);
@@ -338,12 +417,11 @@ export default class StateManager {
                 }
             });
         });
-
         // Keep transitions that aren't in the selected objects, AND aren't dependent on selected objects
-        StateManager._transitionWrappers = StateManager._transitionWrappers.filter((i) => StateManager._selectedObjects.includes(i) && !transitionsDependentOnDeletedNodes.includes(i));
+        StateManager._transitionWrappers = StateManager._transitionWrappers.filter((i) => !StateManager._selectedObjects.includes(i) && !transitionsDependentOnDeletedNodes.includes(i));
 
         // Next, delete all selected nodes
-        StateManager._nodeWrappers = StateManager._nodeWrappers.filter((i) => StateManager._selectedObjects.includes(i));
+        StateManager._nodeWrappers = StateManager._nodeWrappers.filter((i) => !StateManager._selectedObjects.includes(i));
 
         StateManager._selectedObjects.forEach((obj) => obj.deleteKonvaObjects());
         transitionsDependentOnDeletedNodes.forEach((obj) => obj.deleteKonvaObjects());
@@ -377,7 +455,78 @@ export default class StateManager {
         };
         StateManager._stage.position(newPos);
         StateManager._stage.batchDraw();
+        StateManager.drawGrid();
     }
+    // method to reset the zoom scale to 100%
+    public static resetZoom() {
+        if (!StateManager._stage) {
+            console.error('Stage is not initialized.');
+            return;
+        }
+        StateManager._stage.scale({ x: 1, y: 1 });
+        StateManager._stage.position({ x: 0, y: 0 });
+        StateManager._stage.batchDraw();
+        StateManager.drawGrid();
+    }
+    
+    // method to re-center the stage
+    public static centerStage() {
+        if (!StateManager._stage) {
+            console.error('Stage is not initialized.');
+            return;
+        }
+        // Calculate the center based on the container dimensions
+        const x = (window.innerWidth / 2) - (StateManager._stage.width() / 2 * StateManager._stage.scaleX());
+        const y = (window.innerHeight / 2) - (StateManager._stage.height() / 2 * StateManager._stage.scaleY());
+        StateManager._stage.position({ x, y });
+        StateManager.drawGrid();
+        StateManager._stage.batchDraw();
+    }
+
+    // methods to zoom in and out by 10% (can adjust scale later if necessary)
+    public static zoomIn() {
+        if (!StateManager._stage) {
+            console.error('Stage is not initialized.');
+            return;
+        }
+        const scaleBy = 1.1;  // Increase scale by 10%
+        StateManager.applyZoom(scaleBy);
+    }
+    
+    public static zoomOut() {
+        if (!StateManager._stage) {
+            console.error('Stage is not initialized.');
+            return;
+        }
+        const scaleBy = 0.9;  // Decrease scale by 10%
+        StateManager.applyZoom(scaleBy);
+    }
+    
+    // method to apply the zoom feature when buttons are pressed
+    private static applyZoom(scaleBy: number) {
+        const oldScale = StateManager._stage.scaleX();
+        const newScale = oldScale * scaleBy;
+        StateManager._stage.scale({ x: newScale, y: newScale });
+    
+        const stageCenterX = StateManager._stage.width() / 2;
+        const stageCenterY = StateManager._stage.height() / 2;
+        const newPos = {
+            x: stageCenterX - (stageCenterX - StateManager._stage.x()) * scaleBy,
+            y: stageCenterY - (stageCenterY - StateManager._stage.y()) * scaleBy
+        };
+        StateManager._stage.position(newPos);
+        StateManager._stage.batchDraw();
+        StateManager.drawGrid();
+    }
+    
+    
+
+    public static areAllLabelsUnique(): boolean {
+        const labels = StateManager._nodeWrappers.map(node => node.labelText);
+        const uniqueLabels = new Set(labels);
+        return labels.length === uniqueLabels.size;
+    }
+
     
     public static set alphabet(newAlphabet: Array<TokenWrapper>) {
         const oldAlphabet = StateManager._alphabet;
@@ -504,6 +653,14 @@ export default class StateManager {
 
         this._tentConnectionLine.fill(this.colorScheme.tentativeTransitionArrowColor);
         this._tentConnectionLine.stroke(this.colorScheme.tentativeTransitionArrowColor);
+
+        const gridLayer = StateManager._stage.findOne('.gridLayer');
+        if(gridLayer){
+            gridLayer.destroy() ;
+        }
+        StateManager.drawGrid();
+
+        StateManager._stage.draw();
     }
 
     public static get useDarkMode() {
